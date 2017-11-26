@@ -101,3 +101,9 @@ ENV/
 .mypy_cache/
 
 .idea
+test.conf
+neutral_face
+grinning_face
+.DS_Store
+*.tfrecord
+
