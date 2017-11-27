@@ -106,4 +106,5 @@ neutral_face
 grinning_face
 .DS_Store
 *.tfrecord
-
+vgg_16.ckpt
+vgg_16_2016_08_28.tar.gz

@@ -18,8 +18,8 @@ parser.add_argument("--input_config", help="specify input config file", required
 """
     input config file format
     label image_dir
-    0 ./grinning_face
-    1 ./neutral_face
+    0 ./neutral_face
+    1 ./grinning_face
 """
 args = parser.parse_args()
 

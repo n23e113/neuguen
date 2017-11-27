@@ -7,7 +7,7 @@ from __future__ import print_function
 import tensorflow as tf
 from PIL import Image
 
-import gen_dataset.data_provider as data_provider
+import data_provider
 
 TEST_CONFIG = {
     'name': 'test',
@@ -23,7 +23,7 @@ TEST_CONFIG = {
 
 def test():
     dataset, _ = data_provider.config_to_slim_dataset(config=TEST_CONFIG, dataset_dir="./")
-    prefetch_queue = data_provider.slim_dataset_to_prefetch_queue(dataset, 1)
+    prefetch_queue = data_provider.slim_dataset_to_prefetch_queue(dataset, 64)
     face_batch, label_batch = prefetch_queue.dequeue()
 
     init = tf.global_variables_initializer()
@@ -34,11 +34,13 @@ def test():
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(coord=coord)
         session.run(init)
-        for i in xrange(10):
+        for i in xrange(1):
 
             faces, labels = session.run([face_batch, label_batch])
-            im = Image.fromarray(faces[0])
-            im.save("{0}_{1}_face.jpg".format(labels[0], i))
+
+            for j, face in enumerate(faces):
+                im = Image.fromarray(face)
+                im.save("{0}_{1}_face.jpg".format(labels[j][0], j))
 
         print("thread.join")
         coord.request_stop()

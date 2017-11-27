@@ -6,7 +6,7 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
-import model.vgg as vgg
+import vgg
 
 inputs = tf.placeholder(tf.float32, (None, 224, 224, 3), name='inputs')
 r, g, b = tf.split(axis=3, num_or_size_splits=3, value=inputs * 255.0)
