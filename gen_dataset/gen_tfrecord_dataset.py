@@ -23,12 +23,6 @@ parser.add_argument("--input_config", help="specify input config file", required
 """
 args = parser.parse_args()
 
-g_face_image_height = 218
-g_face_image_width = 178
-
-
-
-
 def bytes_feature(value):
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 

@@ -11,14 +11,15 @@ import numpy as np
 import tensorflow as tf
 import gen_dataset.data_provider as data_provider
 import model.model_build as model_build
+import sys
 
 logging.basicConfig(level=logging.INFO)
 
 TEST_CONFIG = {
     'name': 'celeba',
     'size': 40,
-    'pattern_training_set': 'gen_dataset/*.tfrecord',
-    'pattern_test_set': 'gen_dataset/*.tfrecord',
+    'pattern_training_set': 'gen_dataset/test.conf.tfrecord',
+    'pattern_test_set': 'gen_dataset/test.conf.tfrecord',
     'face_image_shape': (218, 178, 3),
     'num_of_classes': 2,
     'items_to_descriptions': {
@@ -33,46 +34,48 @@ def train():
     face_batch, label_batch = prefetch_queue.dequeue()
     face_batch = tf.cast(face_batch, tf.float32)
 
-    x = tf.placeholder(tf.float32, shape=(None, 224, 224, 3))
+    x = tf.placeholder(tf.uint8, shape=(None, 224, 224, 3))
     y = tf.placeholder(tf.int64, shape=(None, 1))
 
-    logit, trainable, losses = model_build.build_model_fc8(x)
+    logit, trainable, losses = model_build.build_mobilenet_v1(x)
     loss = model_build.build_loss(logit, y)
     loss = loss #+ tf.reduce_sum(losses)
 
-    correct_prediction = tf.equal(tf.squeeze(y), tf.argmax(logit, 1))
-    accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"))
-
     train_op = model_build.build_train_op(loss, trainable)
+
+    correct_prediction = tf.equal(tf.squeeze(y), tf.argmax(logit, 1))
+    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+    confusion_matrix_op = tf.confusion_matrix(tf.squeeze(y), tf.argmax(logit, 1))
 
     slim = tf.contrib.slim
     global_step = slim.create_global_step()
     session_config = tf.ConfigProto()
     session_config.gpu_options.allow_growth = True
-    init = tf.global_variables_initializer()
-
-    vgg_saver = tf.train.Saver()
 
     with tf.Session(config=session_config) as session:
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(coord=coord)
 
-        session.run(init)
+        session.run(tf.global_variables_initializer())
 
-        """
-        variables_to_restore = tf.contrib.framework.get_variables_to_restore(
-            include=["vgg_16"])
-        init_fn = tf.contrib.framework.assign_from_checkpoint_fn(
-            "model/vgg_16.ckpt", variables_to_restore)
-        init_fn(session)
-        """
+        model_build.restore_pretrained_mobilenet(session)
 
-        for i in xrange(500):
-            faces, labels = session.run([face_batch, label_batch])
+        for j in xrange(10):
+            confusion_matrix = np.array([[0., 0.], [0., 0.]])
+            for i in xrange(500):
+                faces, labels = session.run([face_batch, label_batch])
 
-            loss_value, accuracy_value, _ = session.run(
-                [loss, accuracy, train_op], feed_dict={x: faces, y: labels})
-            logging.info("loss {0} - {1} - {2}".format(i, loss_value, accuracy_value))
+                loss_value, accuracy_value, confusion, _ = session.run(
+                    [loss, accuracy, confusion_matrix_op, train_op], feed_dict={x: faces, y: labels})
+                confusion_matrix = confusion_matrix + confusion
+                if i % 50 == 0:
+                    sys.stdout.write("*")
+                    sys.stdout.flush()
+                #logit_value = session.run([logit], feed_dict={x: faces, y: labels})
+                #print(np.argmax(logit_value[0], axis=1))
+
+            print("")
+            print(confusion_matrix)
 
         print("thread.join")
         coord.request_stop()

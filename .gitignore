@@ -108,3 +108,10 @@ grinning_face
 *.tfrecord
 vgg_16.ckpt
 vgg_16_2016_08_28.tar.gz
+CelebA
+gen_dataset/0/
+gen_dataset/1/
+gen_dataset/fog.conf
+gen_dataset/fog/
+model/mobilenet_v1_1.0_224.ckpt*
+model/mobilenet_v1_1.0_224_2017_06_14.tar.gz
