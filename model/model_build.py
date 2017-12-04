@@ -40,7 +40,7 @@ def build_mobilenet_v1(face_batch, is_training=True):
 
     face_batch = mobilenet_preprocess(face_batch)
 
-    with tf.contrib.slim.arg_scope(mobilenet_v1.mobilenet_v1_arg_scope(is_training=is_training)):
+    with tf.contrib.slim.arg_scope(mobilenet_v1.mobilenet_v1_arg_scope(is_training=False)):
         _, end_points = mobilenet_v1.mobilenet_v1(face_batch, num_classes=1001)
 
     Conv2d_13_pointwise = end_points["Conv2d_13_pointwise"] # 7 x 7 x 1024
