@@ -16,7 +16,8 @@ from tensorflow.contrib import slim
 DEFAULT_DATASET_DIR = os.path.join(os.path.dirname(__file__), '../dataset')
 DEFAULT_CONFIG = {
     'name': 'celeba',
-    'size': 90000,
+    'training_size': 90000,
+    'test_size': 900,
     'pattern_training_set': 'celeba_training*.tfrecord',
     'pattern_test_set': 'celeba_test*.tfrecord',
     'face_image_shape': (218, 178, 3),
@@ -79,19 +80,19 @@ def config_to_slim_dataset(config=None, dataset_dir=None):
       data_sources=file_pattern_training_set,
       reader=tf.TFRecordReader,
       decoder=decoder,
-      num_samples=config['size'],
+      num_samples=config['training_size'],
       items_to_descriptions=config['items_to_descriptions'])
 
     test_set = slim.dataset.Dataset(
       data_sources=file_pattern_test_set,
       reader=tf.TFRecordReader,
       decoder=decoder,
-      num_samples=config['size'],
+      num_samples=config['test_size'],
       items_to_descriptions=config['items_to_descriptions'])
 
     return training_set, test_set
 
-def slim_dataset_to_prefetch_queue(dataset, batch_size):
+def slim_dataset_to_prefetch_queue(dataset, batch_size, shuffle=True):
 #Args:
 #    dataset: slim.dataset.Dataset
 #    batch_size: batch size
@@ -108,12 +109,19 @@ def slim_dataset_to_prefetch_queue(dataset, batch_size):
 
     face_image, label = provider.get(['image_face', 'label'])
 
-    face_image_batch, label_batch = tf.train.shuffle_batch(
-        [face_image, label],
-        batch_size=batch_size,
-        num_threads=shuffle_config.num_batching_threads,
-        capacity=shuffle_config.queue_capacity,
-        min_after_dequeue=shuffle_config.min_after_dequeue)
+    if shuffle:
+        face_image_batch, label_batch = tf.train.shuffle_batch(
+            [face_image, label],
+            batch_size=batch_size,
+            num_threads=shuffle_config.num_batching_threads,
+            capacity=shuffle_config.queue_capacity,
+            min_after_dequeue=shuffle_config.min_after_dequeue)
+    else:
+        face_image_batch, label_batch = tf.train.batch(
+            [face_image, label],
+            batch_size=batch_size,
+            num_threads=shuffle_config.num_batching_threads,
+            capacity=shuffle_config.queue_capacity)
 
     # resize to 224 x 224 (h x w)
     face_image_batch = tf.cast(tf.image.resize_images(

@@ -305,16 +305,14 @@ def build_simple_conv_model(face_batch):
            tf.trainable_variables(scope_name),\
            tf.losses.get_regularization_losses(scope_name)
 
-def build_train_op(loss, trainable):
+def build_train_op(loss, trainable, global_step):
     """
 
     :param loss:
     :param trainable:
-    :return:
+    :return: partial and total optimizer
     """
     optimizer = tf.train.AdamOptimizer()
-    #optimizer = tf.train.GradientDescentOptimizer(0.0001)
-    #return optimizer.minimize(loss)
     grad_var = optimizer.compute_gradients(loss, var_list=trainable)
-    #grad_var = optimizer.compute_gradients(loss)
-    return optimizer.apply_gradients(grad_var)
+    return optimizer.apply_gradients(grad_var, global_step=global_step),\
+           optimizer.minimize(loss, global_step=global_step)
