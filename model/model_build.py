@@ -1,4 +1,4 @@
-#!/usr/bin/python
+##!/usr/bin/python
 # -*- coding: utf-8 -*-
 
 from __future__ import absolute_import
@@ -36,23 +36,30 @@ def build_mobilenet_v1_logit(face_batch):
            tf.trainable_variables(var_scope_name),\
            tf.losses.get_regularization_losses(var_scope_name)
 
-def build_mobilenet_v1(face_batch, is_training=True):
+def build_mobilenet_v1(face_batch, mobilenet_training=False, neuguen_training=True):
 
     face_batch = mobilenet_preprocess(face_batch)
 
-    with tf.contrib.slim.arg_scope(mobilenet_v1.mobilenet_v1_arg_scope(is_training=False)):
-        _, end_points = mobilenet_v1.mobilenet_v1(face_batch, num_classes=1001)
+    with tf.contrib.slim.arg_scope(mobilenet_v1.mobilenet_v1_arg_scope(is_training=mobilenet_training)):
+        _, end_points = mobilenet_v1.mobilenet_v1(face_batch, num_classes=1001, is_training=mobilenet_training)
 
     Conv2d_13_pointwise = end_points["Conv2d_13_pointwise"] # 7 x 7 x 1024
+    Conv2d_13_pointwise = tf.reduce_sum(Conv2d_13_pointwise, axis=3, keep_dims=True)
     Conv2d_13_pointwise = tf.image.resize_images(
         Conv2d_13_pointwise, [28, 28], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+
     Conv2d_10_pointwise = end_points["Conv2d_10_pointwise"] # 14 x 14 x 512
+    Conv2d_10_pointwise = tf.reduce_sum(Conv2d_10_pointwise, axis=3, keep_dims=True)
     Conv2d_10_pointwise = tf.image.resize_images(
             Conv2d_10_pointwise, [28, 28], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+
     Conv2d_7_pointwise = end_points["Conv2d_7_pointwise"] # 14 x 14 x 512
     Conv2d_7_pointwise = tf.image.resize_images(
             Conv2d_7_pointwise, [28, 28], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+    Conv2d_7_pointwise = tf.reduce_sum(Conv2d_7_pointwise, axis=3, keep_dims=True)
+
     Conv2d_4_pointwise = end_points["Conv2d_4_pointwise"] # 28 x 28 x 256
+    Conv2d_4_pointwise = tf.reduce_sum(Conv2d_4_pointwise, axis=3, keep_dims=True)
 
     feature_map = tf.concat(
         [Conv2d_13_pointwise,
@@ -64,12 +71,15 @@ def build_mobilenet_v1(face_batch, is_training=True):
     slim = tf.contrib.slim
     var_scope_name = "neuguen"
     batch_norm_params = {
-        'is_training': is_training,
+        'is_training': neuguen_training,
         'center': True,
         'scale': True,
         'decay': 0.9997,
         'epsilon': 0.001,
     }
+
+    tf.summary.histogram("feature_map", feature_map)
+
     with tf.variable_scope(var_scope_name):
         with slim.arg_scope([slim.conv2d],
                             activation_fn=tf.nn.relu,
@@ -80,13 +90,83 @@ def build_mobilenet_v1(face_batch, is_training=True):
             with slim.arg_scope([slim.batch_norm], **batch_norm_params):
                 feature_map = slim.conv2d(feature_map, 64, 3, 1,
                                           normalizer_fn=slim.batch_norm)
+                tf.summary.histogram("feature_map_after_neuguen_conv", feature_map)
                 flatten = tf.contrib.layers.flatten(feature_map)
+                tf.summary.histogram("flatten", flatten)
                 logits = tf.contrib.layers.fully_connected(
                     flatten, 2, activation_fn=None, scope="fc1")
 
     return logits,\
            tf.trainable_variables(var_scope_name),\
            tf.losses.get_regularization_losses(var_scope_name)
+
+def build_mobilenet_v1_debug(face_batch, mobilenet_training=False, neuguen_training=True):
+    # strange behavior with neuguen's batch_norm_params.is_training=False in inference
+    # debug it
+    # set decay <= 0.9 to resolve
+
+    face_batch = mobilenet_preprocess(face_batch)
+
+    with tf.contrib.slim.arg_scope(mobilenet_v1.mobilenet_v1_arg_scope(is_training=mobilenet_training)):
+        _, end_points = mobilenet_v1.mobilenet_v1(face_batch, num_classes=1001, is_training=mobilenet_training)
+
+    Conv2d_13_pointwise = end_points["Conv2d_13_pointwise"] # 7 x 7 x 1024
+    Conv2d_13_pointwise = tf.reduce_sum(Conv2d_13_pointwise, axis=3, keep_dims=True)
+    Conv2d_13_pointwise = tf.image.resize_images(
+        Conv2d_13_pointwise, [28, 28], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+
+    Conv2d_10_pointwise = end_points["Conv2d_10_pointwise"] # 14 x 14 x 512
+    Conv2d_10_pointwise = tf.reduce_sum(Conv2d_10_pointwise, axis=3, keep_dims=True)
+    Conv2d_10_pointwise = tf.image.resize_images(
+            Conv2d_10_pointwise, [28, 28], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+
+    Conv2d_7_pointwise = end_points["Conv2d_7_pointwise"] # 14 x 14 x 512
+    Conv2d_7_pointwise = tf.image.resize_images(
+            Conv2d_7_pointwise, [28, 28], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+    Conv2d_7_pointwise = tf.reduce_sum(Conv2d_7_pointwise, axis=3, keep_dims=True)
+
+    Conv2d_4_pointwise = end_points["Conv2d_4_pointwise"] # 28 x 28 x 256
+    Conv2d_4_pointwise = tf.reduce_sum(Conv2d_4_pointwise, axis=3, keep_dims=True)
+
+    feature_map = tf.concat(
+        [Conv2d_13_pointwise,
+         Conv2d_10_pointwise,
+         Conv2d_7_pointwise,
+         Conv2d_4_pointwise,
+        ], 3)
+
+    var_scope_name = "neuguen"
+    with tf.variable_scope(var_scope_name):
+        conv2ded = tf.contrib.layers.conv2d(
+            feature_map,
+            64,
+            3,
+            1,
+            "SAME",
+            activation_fn=None,
+            normalizer_fn=None,
+            weights_regularizer=tf.contrib.layers.l2_regularizer(0.0005),
+            biases_initializer=None)
+
+        batch_normed = tf.contrib.layers.batch_norm(
+            conv2ded,
+            decay=0.9,
+            center=True,
+            scale=True,
+            epsilon=0.001,
+            is_training=neuguen_training)
+
+        relued = tf.nn.relu(batch_normed)
+
+        flatten = tf.contrib.layers.flatten(relued)
+
+        logits = tf.contrib.layers.fully_connected(
+            flatten, 2, activation_fn=None, scope="fc1")
+
+    return logits,\
+           tf.trainable_variables(var_scope_name),\
+           tf.losses.get_regularization_losses(var_scope_name),\
+           (conv2ded, batch_normed, relued, logits)
 
 def restore_pretrained_mobilenet(session):
     variables_to_restore = tf.contrib.framework.get_variables_to_restore(
@@ -313,6 +393,15 @@ def build_train_op(loss, trainable, global_step):
     :return: partial and total optimizer
     """
     optimizer = tf.train.AdamOptimizer()
-    grad_var = optimizer.compute_gradients(loss, var_list=trainable)
-    return optimizer.apply_gradients(grad_var, global_step=global_step),\
-           optimizer.minimize(loss, global_step=global_step)
+
+    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+    print(update_ops)
+    if update_ops:
+        with tf.control_dependencies([tf.group(*update_ops)]):
+            grad_var = optimizer.compute_gradients(loss, var_list=trainable)
+            return optimizer.apply_gradients(grad_var, global_step=global_step),\
+                optimizer.minimize(loss, global_step=global_step)
+    else:
+        grad_var = optimizer.compute_gradients(loss, var_list=trainable)
+        return optimizer.apply_gradients(grad_var, global_step=global_step),\
+            optimizer.minimize(loss, global_step=global_step)

@@ -118,3 +118,5 @@ model/mobilenet_v1_1.0_224_2017_06_14.tar.gz
 gen_dataset/celeba.test
 gen_dataset/celeba.train
 neuguen_model/*
+gen_dataset/debug
+gen_dataset/model.debug

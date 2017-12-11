@@ -11,6 +11,7 @@ import logging
 from PIL import Image
 import numpy as np
 import tensorflow as tf
+from tensorflow.contrib.layers.python.layers import utils
 import gen_dataset.data_provider as data_provider
 import model.model_build as model_build
 
@@ -52,31 +53,27 @@ def train():
 
     tf.summary.image("face", face_batch[0:16], max_outputs=16)
 
-    # testing data
-    #prefetch_queue_test = data_provider.slim_dataset_to_prefetch_queue(testset, 256)
-    #face_test_batch, label_test_batch = prefetch_queue_test.dequeue()
-    #face_test_batch = tf.cast(face_test_batch, tf.float32)
-
     x = tf.placeholder(tf.uint8, shape=(None, 224, 224, 3))
     y = tf.placeholder(tf.int64, shape=(None, 1))
 
-    logit, trainable, total_reg_losses = model_build.build_mobilenet_v1(x)
+    # todo ricker pass bool tensor to "is_training", support mobilenet full training 
+    logit, trainable, total_reg_losses, _ = model_build.build_mobilenet_v1_debug(x)
     tf.summary.scalar("regularization_loss", tf.reduce_sum(total_reg_losses))
 
     loss = model_build.build_loss(logit, y)
-    tf.summary.scalar("cross entropy loss", loss)
+    tf.summary.scalar("cross_entropy_loss", loss)
 
     loss = loss + tf.reduce_sum(total_reg_losses)
-    tf.summary.scalar("total loss", loss)
+    tf.summary.scalar("total_loss", loss)
 
-    global_step = tf.contrib.slim.create_global_step()
+    global_step = tf.train.create_global_step()
     partial_train_op, full_train_op = model_build.build_train_op(loss, trainable, global_step)
-    for var in tf.trainable_variables():
+    for var in tf.global_variables():
         tf.summary.histogram(var.op.name, var)
 
     correct_prediction = tf.equal(tf.squeeze(y), tf.argmax(logit, 1))
     accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-    tf.summary.scalar("batch accuracy", accuracy)
+    tf.summary.scalar("batch_accuracy", accuracy)
     confusion_matrix_op = tf.confusion_matrix(tf.squeeze(y), tf.argmax(logit, 1))
 
     session_config = tf.ConfigProto()
@@ -103,8 +100,8 @@ def train():
             accuracy_avg = 0.0
             if j < 40:
                 train_op = partial_train_op
-            else:
-                train_op = full_train_op
+            #else:
+            #    train_op = full_train_op
             for i in xrange(int(TRAINING_CONFIG["training_size"] / BATCH_SIZE)):
                 faces, labels, step = session.run([face_batch, label_batch, global_step])
                 if step % 100 == 99:
@@ -134,13 +131,6 @@ def train():
             print(confusion_matrix)
 
             neuguen_saver.save(session, os.path.join(save_path, "neuguen.ckpt"), global_step=global_step)
-
-            #faces, labels = session.run([face_test_batch, label_test_batch])
-            #accuracy_value, confusion = session.run(
-            #    [accuracy, confusion_matrix_op], feed_dict={x: faces, y: labels})
-            #print("{0} test accuracy:{1}    ".format(j, accuracy_value))
-            #print(confusion_matrix)
-            #print("")
 
         print("thread.join")
         coord.request_stop()
