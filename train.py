@@ -8,6 +8,7 @@ from __future__ import print_function
 import sys
 import os
 import logging
+import argparse
 from PIL import Image
 import numpy as np
 import tensorflow as tf
@@ -16,6 +17,9 @@ import gen_dataset.data_provider as data_provider
 import model.model_build as model_build
 
 logging.basicConfig(level=logging.INFO)
+parser = argparse.ArgumentParser()
+parser.add_argument("--fine_tune", help="fine tune with mobilenet")
+args = parser.parse_args()
 
 A_DUMMY_CONFIG = {
     'name': 'celeba',
@@ -56,8 +60,12 @@ def train():
     x = tf.placeholder(tf.uint8, shape=(None, 224, 224, 3))
     y = tf.placeholder(tf.int64, shape=(None, 1))
 
-    # todo ricker pass bool tensor to "is_training", support mobilenet full training 
-    logit, trainable, total_reg_losses, _ = model_build.build_mobilenet_v1_debug(x)
+    if args.fine_tune:
+        logit, trainable, total_reg_losses, _ = model_build.build_mobilenet_v1_debug(
+            x, mobilenet_training=True, neuguen_training=True)
+        print("fine tune")
+    else:
+        logit, trainable, total_reg_losses, _ = model_build.build_mobilenet_v1_debug(x)
     tf.summary.scalar("regularization_loss", tf.reduce_sum(total_reg_losses))
 
     loss = model_build.build_loss(logit, y)
@@ -67,7 +75,7 @@ def train():
     tf.summary.scalar("total_loss", loss)
 
     global_step = tf.train.create_global_step()
-    partial_train_op, full_train_op = model_build.build_train_op(loss, trainable, global_step)
+    train_op = model_build.build_train_op(loss, trainable, global_step)
     for var in tf.global_variables():
         tf.summary.histogram(var.op.name, var)
 
@@ -82,30 +90,34 @@ def train():
     neuguen_saver = tf.train.Saver(max_to_keep=10)
     merge_summary = tf.summary.merge_all()
 
+    save_path_fine_tune = "neuguen_model_fine_tune"
+    if not os.path.exists(save_path_fine_tune):
+        os.makedirs(save_path_fine_tune)
     save_path = "neuguen_model"
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
     with tf.Session(config=session_config) as session:
-        summary_writer = tf.summary.FileWriter(save_path, session.graph)
         coord = tf.train.Coordinator()
         threads = tf.train.start_queue_runners(coord=coord)
 
         session.run(tf.global_variables_initializer())
 
-        model_build.restore_pretrained_mobilenet(session)
+        if args.fine_tune:
+            summary_writer = tf.summary.FileWriter(save_path_fine_tune, session.graph)
+            model_build.restore_last_checkpoint(session, save_path)
+        else:
+            summary_writer = tf.summary.FileWriter(save_path, session.graph)
+            model_build.restore_pretrained_mobilenet(session)
 
-        for j in xrange(100):
+        for j in xrange(20):
             confusion_matrix = np.array([[0., 0.], [0., 0.]])
             accuracy_avg = 0.0
-            if j < 40:
-                train_op = partial_train_op
-            #else:
-            #    train_op = full_train_op
+
             for i in xrange(int(TRAINING_CONFIG["training_size"] / BATCH_SIZE)):
                 faces, labels, step = session.run([face_batch, label_batch, global_step])
                 if step % 100 == 99:
-                    if step % 1000 == 999:
+                    if step % 10000 == 9999:
                         run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
                         run_metadata = tf.RunMetadata()
                         summary, loss_value, accuracy_value, confusion, _ = session.run(
@@ -130,7 +142,10 @@ def train():
             print("")
             print(confusion_matrix)
 
-            neuguen_saver.save(session, os.path.join(save_path, "neuguen.ckpt"), global_step=global_step)
+            if args.fine_tune:
+                neuguen_saver.save(session, os.path.join(save_path_fine_tune, "neuguen.ckpt"), global_step=global_step)
+            else:
+                neuguen_saver.save(session, os.path.join(save_path, "neuguen.ckpt"), global_step=global_step)
 
         print("thread.join")
         coord.request_stop()

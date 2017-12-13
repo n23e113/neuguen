@@ -120,3 +120,5 @@ gen_dataset/celeba.train
 neuguen_model/*
 gen_dataset/debug
 gen_dataset/model.debug
+neuguen_generator
+out.jpg

@@ -7,6 +7,8 @@ from __future__ import print_function
 
 import logging
 import tensorflow as tf
+from tensorflow.python.framework import ops
+from tensorflow.python.ops import clip_ops
 import model.vgg as vgg
 import model.mobilenet_v1 as mobilenet_v1
 
@@ -97,15 +99,18 @@ def build_mobilenet_v1(face_batch, mobilenet_training=False, neuguen_training=Tr
                     flatten, 2, activation_fn=None, scope="fc1")
 
     return logits,\
-           tf.trainable_variables(var_scope_name),\
-           tf.losses.get_regularization_losses(var_scope_name)
+           tf.trainable_variables() if mobilenet_training else tf.trainable_variables(var_scope_name),\
+           tf.losses.get_regularization_losses() if mobilenet_training else tf.losses.get_regularization_losses(var_scope_name)
 
-def build_mobilenet_v1_debug(face_batch, mobilenet_training=False, neuguen_training=True):
+def build_mobilenet_v1_debug(face_batch, mobilenet_training=False, neuguen_training=True, preprocess=True):
     # strange behavior with neuguen's batch_norm_params.is_training=False in inference
     # debug it
     # set decay <= 0.9 to resolve
 
-    face_batch = mobilenet_preprocess(face_batch)
+    # note, preprocess contain non-linear operations that do not provide gradients, cannot backprop to input variable
+    # must not contain preprocess at generation step
+    if preprocess:
+        face_batch = mobilenet_preprocess(face_batch)
 
     with tf.contrib.slim.arg_scope(mobilenet_v1.mobilenet_v1_arg_scope(is_training=mobilenet_training)):
         _, end_points = mobilenet_v1.mobilenet_v1(face_batch, num_classes=1001, is_training=mobilenet_training)
@@ -163,10 +168,14 @@ def build_mobilenet_v1_debug(face_batch, mobilenet_training=False, neuguen_train
         logits = tf.contrib.layers.fully_connected(
             flatten, 2, activation_fn=None, scope="fc1")
 
-    return logits,\
-           tf.trainable_variables(var_scope_name),\
-           tf.losses.get_regularization_losses(var_scope_name),\
-           (conv2ded, batch_normed, relued, logits)
+    trainable_variables = tf.trainable_variables() if mobilenet_training else\
+        tf.trainable_variables(var_scope_name)
+
+    losses = tf.losses.get_regularization_losses() if mobilenet_training else\
+        tf.losses.get_regularization_losses(var_scope_name)
+
+    return logits, trainable_variables, losses,\
+        (conv2ded, batch_normed, relued, logits)
 
 def restore_pretrained_mobilenet(session):
     variables_to_restore = tf.contrib.framework.get_variables_to_restore(
@@ -180,6 +189,18 @@ def restore_pretrained_vgg(session):
         include=["vgg_16"])
     init_fn = tf.contrib.framework.assign_from_checkpoint_fn(
         "model/vgg_16.ckpt", variables_to_restore, ignore_missing_vars=True)
+    init_fn(session)
+
+def restore_last_checkpoint(session, path):
+    variables_to_restore = tf.contrib.framework.get_variables_to_restore()
+    init_fn = tf.contrib.framework.assign_from_checkpoint_fn(
+        tf.train.latest_checkpoint(path), variables_to_restore, ignore_missing_vars=True)
+    init_fn(session)
+
+def restore_last_checkpoint(session, path):
+    variables_to_restore = tf.contrib.framework.get_variables_to_restore()
+    init_fn = tf.contrib.framework.assign_from_checkpoint_fn(
+        path, variables_to_restore, ignore_missing_vars=True)
     init_fn(session)
 
 def vgg_process(face_batch):
@@ -301,7 +322,9 @@ def build_loss(preds, labels):
     :param labels: sparse label
     :return: loss tensor
     """
-    labels = tf.squeeze(labels)
+    print(preds.shape)
+    labels = tf.squeeze(labels, axis=[1])
+    print(labels.shape)
     return tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(
         labels=labels,
         logits=preds))
@@ -385,23 +408,54 @@ def build_simple_conv_model(face_batch):
            tf.trainable_variables(scope_name),\
            tf.losses.get_regularization_losses(scope_name)
 
+def add_gradients_summaries(grads_and_vars):
+    """Add summaries to gradients.
+    Args:
+      grads_and_vars: A list of gradient to variable pairs (tuples).
+    Returns:
+      The list of created summaries.
+    """
+    summaries = []
+    for grad, var in grads_and_vars:
+        if grad is not None:
+            if isinstance(grad, ops.IndexedSlices):
+                grad_values = grad.values
+            else:
+                grad_values = grad
+            summaries.append(
+                tf.summary.histogram(var.op.name + '_gradient', grad_values))
+            summaries.append(
+                tf.summary.scalar(var.op.name + '_gradient_norm',
+                               clip_ops.global_norm([grad_values])))
+        else:
+            logging.info('Var %s has no gradient', var.op.name)
+
+    return summaries
+
 def build_train_op(loss, trainable, global_step):
     """
 
     :param loss:
     :param trainable:
-    :return: partial and total optimizer
+    :return: optimizer wrt trainable
     """
     optimizer = tf.train.AdamOptimizer()
 
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-    print(update_ops)
+
     if update_ops:
         with tf.control_dependencies([tf.group(*update_ops)]):
             grad_var = optimizer.compute_gradients(loss, var_list=trainable)
-            return optimizer.apply_gradients(grad_var, global_step=global_step),\
-                optimizer.minimize(loss, global_step=global_step)
+            add_gradients_summaries(grad_var)
+            return optimizer.apply_gradients(grad_var, global_step=global_step)
     else:
         grad_var = optimizer.compute_gradients(loss, var_list=trainable)
-        return optimizer.apply_gradients(grad_var, global_step=global_step),\
-            optimizer.minimize(loss, global_step=global_step)
+        add_gradients_summaries(grad_var)
+        return optimizer.apply_gradients(grad_var, global_step=global_step)
+
+def build_generator_train_op(loss, trainable, global_step):
+    print(trainable)
+    optimizer = tf.train.AdamOptimizer()
+    add_gradients_summaries(optimizer.compute_gradients(loss))
+    grad_var = optimizer.compute_gradients(loss, var_list=trainable)
+    return optimizer.apply_gradients(grad_var, global_step=global_step)

@@ -10,13 +10,13 @@ import os
 import logging
 import argparse
 import random
+random.seed(1)
 from PIL import Image
 import numpy as np
 import tensorflow as tf
 import gen_dataset.data_provider as data_provider
 import model.model_build as model_build
 
-random.seed(1)
 logging.basicConfig(level=logging.INFO)
 parser = argparse.ArgumentParser()
 parser.add_argument("--model_checkpoint", help="specify checkpoint file")
